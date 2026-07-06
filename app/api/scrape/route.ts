@@ -13,10 +13,11 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { segmento, cidade, raio } = body as {
+  const { segmento, cidade, raio, filtroSite } = body as {
     segmento: string
     cidade: string
     raio: number
+    filtroSite: 'sem_site' | 'com_site' | 'todos'
   }
 
   if (!segmento || !cidade || !raio) {
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
   createJob(jobId)
 
   // Dispara em background — não aguarda
-  runScraper(jobId, segmento, cidade, raio).catch(() => {})
+  runScraper(jobId, segmento, cidade, raio, filtroSite ?? 'sem_site').catch(() => {})
 
   return NextResponse.json({ jobId })
 }

@@ -24,7 +24,8 @@ export async function runScraper(
   jobId: string,
   segmento: string,
   cidade: string,
-  raioKm: number
+  raioKm: number,
+  filtroSite: 'sem_site' | 'com_site' | 'todos' = 'sem_site'
 ): Promise<void> {
   updateJob(jobId, { status: 'running', progress: 5 })
 
@@ -48,16 +49,24 @@ export async function runScraper(
 
     // Aguarda feed de resultados
     await page.waitForSelector('[role="feed"]', { timeout: 15000 })
-    // Aguarda ao menos um resultado aparecer
     await page.waitForSelector('[role="feed"] a[href*="/maps/place/"]', { timeout: 15000 })
 
-    // Coleta todos os hrefs dos resultados de uma vez
+    // Scroll para carregar mais resultados
+    const feed = await page.$('[role="feed"]')
+    if (feed) {
+      for (let s = 0; s < 8; s++) {
+        await feed.evaluate(el => el.scrollBy(0, 600))
+        await page.waitForTimeout(800)
+      }
+    }
+
+    // Coleta todos os hrefs dos resultados
     const hrefs: string[] = await page.$$eval(
       '[role="feed"] a[href*="/maps/place/"]',
       els => [...new Set(els.map(el => (el as HTMLAnchorElement).href).filter(h => h.includes('/maps/place/')))]
     )
 
-    const total = Math.min(hrefs.length, 20)
+    const total = Math.min(hrefs.length, 40)
     updateJob(jobId, { progress: 10 })
 
     for (let i = 0; i < total; i++) {
@@ -67,10 +76,13 @@ export async function runScraper(
         // Aguarda o painel do estabelecimento carregar
         await page.waitForSelector('h1', { timeout: 10000 })
 
-        // Verifica se tem website — link de autoridade
+        // Filtra por presença de website
         const hasWebsite = await page.$('a[data-item-id="authority"]') !== null
-
-        if (hasWebsite) {
+        if (filtroSite === 'sem_site' && hasWebsite) {
+          updateJob(jobId, { progress: 10 + Math.floor(((i + 1) / total) * 85) })
+          continue
+        }
+        if (filtroSite === 'com_site' && !hasWebsite) {
           updateJob(jobId, { progress: 10 + Math.floor(((i + 1) / total) * 85) })
           continue
         }

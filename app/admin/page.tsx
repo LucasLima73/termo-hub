@@ -5,10 +5,18 @@ import type { Job, Lead } from '@/lib/types'
 
 const RAIOS = [5, 10, 20, 50]
 
+const SEGMENTOS = [
+  'restaurante', 'lanchonete', 'pizzaria', 'padaria',
+  'dentista', 'médico', 'clínica', 'psicólogo',
+  'salão de beleza', 'barbearia', 'academia', 'farmácia',
+  'pet shop', 'mecânica', 'escola', 'contabilidade',
+]
+
 export default function AdminPage() {
   const [segmento, setSegmento] = useState('')
   const [cidade, setCidade] = useState('')
   const [raio, setRaio] = useState(10)
+  const [filtroSite, setFiltroSite] = useState<'sem_site' | 'com_site' | 'todos'>('sem_site')
   const [job, setJob] = useState<Job | null>(null)
   const [loading, setLoading] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -34,7 +42,7 @@ export default function AdminPage() {
       const res = await fetch('/api/scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ segmento, cidade, raio }),
+        body: JSON.stringify({ segmento, cidade, raio, filtroSite }),
       })
       if (!res.ok) {
         setLoading(false)
@@ -93,8 +101,8 @@ export default function AdminPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="bg-gray-900 p-6 rounded-xl border border-gray-800 flex flex-col gap-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="flex flex-col gap-1">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="flex flex-col gap-1 md:col-span-4">
               <label className="text-gray-400 text-sm">Segmento</label>
               <input
                 value={segmento}
@@ -103,6 +111,20 @@ export default function AdminPage() {
                 required
                 className="bg-gray-800 text-white px-4 py-2 rounded-lg border border-gray-700 outline-none focus:border-green-500"
               />
+              {!segmento && (
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {SEGMENTOS.map(s => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setSegmento(s)}
+                      className="text-xs px-3 py-1 rounded-full bg-gray-800 border border-gray-700 text-gray-400 hover:border-green-600 hover:text-green-400 transition-colors"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-gray-400 text-sm">Cidade</label>
@@ -125,6 +147,25 @@ export default function AdminPage() {
                   <option key={r} value={r}>{r} km</option>
                 ))}
               </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-gray-400 text-sm">Site</label>
+              <div className="flex rounded-lg overflow-hidden border border-gray-700">
+                {([['sem_site', 'Sem site'], ['todos', 'Todos'], ['com_site', 'Com site']] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setFiltroSite(val)}
+                    className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                      filtroSite === val
+                        ? 'bg-green-600 text-white'
+                        : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <button
