@@ -16,6 +16,10 @@ async function getLaunchOptions() {
   }
 }
 
+async function getText(page: playwright.Page, selector: string): Promise<string> {
+  return page.$eval(selector, el => el.textContent?.trim() ?? '').catch(() => '')
+}
+
 export async function runScraper(
   jobId: string,
   segmento: string,
@@ -30,60 +34,76 @@ export async function runScraper(
     browser = await playwright.chromium.launch(launchOptions)
 
     const page = await browser.newPage()
+
+    // Simula user agent real para evitar bloqueio
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'pt-BR,pt;q=0.9',
+    })
+
     const query = encodeURIComponent(`${segmento} em ${cidade}`)
     await page.goto(`https://www.google.com/maps/search/${query}`, {
       waitUntil: 'domcontentloaded',
       timeout: 30000,
     })
 
-    // Aguarda lista de resultados carregar
+    // Aguarda feed de resultados
     await page.waitForSelector('[role="feed"]', { timeout: 15000 })
+    // Aguarda ao menos um resultado aparecer
+    await page.waitForSelector('[role="feed"] a[href*="/maps/place/"]', { timeout: 15000 })
 
-    // Coleta links dos resultados
-    const listItems = await page.$$('[role="feed"] > div a[href*="/maps/place/"]')
-    const total = Math.min(listItems.length, 20) // limita a 20 resultados
+    // Coleta todos os hrefs dos resultados de uma vez
+    const hrefs: string[] = await page.$$eval(
+      '[role="feed"] a[href*="/maps/place/"]',
+      els => [...new Set(els.map(el => (el as HTMLAnchorElement).href).filter(h => h.includes('/maps/place/')))]
+    )
 
+    const total = Math.min(hrefs.length, 20)
     updateJob(jobId, { progress: 10 })
 
     for (let i = 0; i < total; i++) {
       try {
-        const items = await page.$$('[role="feed"] > div a[href*="/maps/place/"]')
-        if (!items[i]) continue
+        await page.goto(hrefs[i], { waitUntil: 'domcontentloaded', timeout: 20000 })
 
-        await items[i].click()
-        await page.waitForTimeout(2000)
+        // Aguarda o painel do estabelecimento carregar
+        await page.waitForSelector('h1', { timeout: 10000 })
 
-        // Verifica se tem website
-        const websiteLink = await page.$('a[data-item-id="authority"]')
-        if (websiteLink) {
-          // Tem site — pula
-          updateJob(jobId, { progress: 10 + Math.floor((i / total) * 85) })
+        // Verifica se tem website — link de autoridade
+        const hasWebsite = await page.$('a[data-item-id="authority"]') !== null
+
+        if (hasWebsite) {
+          updateJob(jobId, { progress: 10 + Math.floor(((i + 1) / total) * 85) })
           continue
         }
 
-        // Extrai dados
-        const name = await page.$eval('h1', el => el.textContent?.trim() ?? '')
-        const phone = await page.$eval(
-          '[data-item-id^="phone"]',
-          el => el.textContent?.trim() ?? ''
-        ).catch(() => '')
-        const address = await page.$eval(
-          '[data-item-id="address"]',
-          el => el.textContent?.trim() ?? ''
-        ).catch(() => '')
+        // Extrai nome
+        const name = await getText(page, 'h1')
+
+        // Telefone — múltiplos seletores possíveis
+        const phone =
+          (await getText(page, '[data-item-id^="phone"]')) ||
+          (await getText(page, 'button[data-item-id^="phone"]')) ||
+          (await page.$eval(
+            '[aria-label^="Telefone"]',
+            el => el.getAttribute('aria-label')?.replace('Telefone: ', '') ?? ''
+          ).catch(() => ''))
+
+        // Endereço
+        const address =
+          (await getText(page, '[data-item-id="address"]')) ||
+          (await page.$eval(
+            '[aria-label^="Endereço"]',
+            el => el.getAttribute('aria-label')?.replace('Endereço: ', '') ?? ''
+          ).catch(() => ''))
+
         const mapsUrl = page.url()
 
-        if (name) {
+        if (name && name !== 'Resultados') {
           addResult(jobId, { name, phone, address, mapsUrl })
         }
 
-        updateJob(jobId, { progress: 10 + Math.floor((i / total) * 85) })
-
-        // Volta para lista
-        await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => {})
-        await page.waitForTimeout(1000)
+        updateJob(jobId, { progress: 10 + Math.floor(((i + 1) / total) * 85) })
       } catch {
-        // Continua para próximo resultado se um falhar
+        // Continua para próximo se falhar
       }
     }
 
