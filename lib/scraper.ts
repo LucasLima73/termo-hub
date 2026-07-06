@@ -32,7 +32,7 @@ export async function runScraper(
     const page = await browser.newPage()
     const query = encodeURIComponent(`${segmento} em ${cidade}`)
     await page.goto(`https://www.google.com/maps/search/${query}`, {
-      waitUntil: 'networkidle',
+      waitUntil: 'domcontentloaded',
       timeout: 30000,
     })
 
@@ -80,7 +80,7 @@ export async function runScraper(
         updateJob(jobId, { progress: 10 + Math.floor((i / total) * 85) })
 
         // Volta para lista
-        await page.goBack({ waitUntil: 'networkidle' }).catch(() => {})
+        await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => {})
         await page.waitForTimeout(1000)
       } catch {
         // Continua para próximo resultado se um falhar
