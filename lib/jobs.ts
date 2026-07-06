@@ -1,25 +1,41 @@
+import fs from 'fs'
+import path from 'path'
 import type { Job, Lead } from './types'
 
-const jobs = new Map<string, Job>()
+const DIR = '/tmp/scraper-jobs'
+
+function ensureDir() {
+  if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true })
+}
+
+function jobPath(id: string) {
+  return path.join(DIR, `${id}.json`)
+}
 
 export function createJob(id: string): Job {
+  ensureDir()
   const job: Job = { id, status: 'pending', results: [], progress: 0 }
-  jobs.set(id, job)
+  fs.writeFileSync(jobPath(id), JSON.stringify(job))
   return job
 }
 
 export function getJob(id: string): Job | undefined {
-  return jobs.get(id)
+  try {
+    const raw = fs.readFileSync(jobPath(id), 'utf-8')
+    return JSON.parse(raw) as Job
+  } catch {
+    return undefined
+  }
 }
 
 export function updateJob(id: string, patch: Partial<Job>): void {
-  const job = jobs.get(id)
+  const job = getJob(id)
   if (!job) return
-  jobs.set(id, { ...job, ...patch })
+  fs.writeFileSync(jobPath(id), JSON.stringify({ ...job, ...patch }))
 }
 
 export function addResult(id: string, lead: Lead): void {
-  const job = jobs.get(id)
+  const job = getJob(id)
   if (!job) return
-  jobs.set(id, { ...job, results: [...job.results, lead] })
+  fs.writeFileSync(jobPath(id), JSON.stringify({ ...job, results: [...job.results, lead] }))
 }
