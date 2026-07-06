@@ -4,9 +4,14 @@ import { getJob } from '@/lib/jobs'
 export const runtime = 'nodejs'
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ jobId: string }> }
 ) {
+  const session = req.cookies.get('admin_session')?.value
+  if (session !== '1') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { jobId } = await params
   const job = getJob(jobId)
   if (!job) {

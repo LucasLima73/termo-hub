@@ -7,6 +7,11 @@ export const maxDuration = 60
 export const runtime = 'nodejs'
 
 export async function POST(req: NextRequest) {
+  const session = req.cookies.get('admin_session')?.value
+  if (session !== '1') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const body = await req.json()
   const { segmento, cidade, raio } = body as {
     segmento: string
