@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { Job, Lead } from '@/lib/types'
 
 const RAIOS = [5, 10, 20, 50]
@@ -20,28 +20,45 @@ export default function AdminPage() {
     }
   }
 
+  useEffect(() => {
+    return () => stopPolling()
+  }, [])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     stopPolling()
     setLoading(true)
     setJob(null)
 
-    const res = await fetch('/api/scrape', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ segmento, cidade, raio }),
-    })
-    const { jobId } = await res.json()
-
-    pollRef.current = setInterval(async () => {
-      const r = await fetch(`/api/scrape/${jobId}`)
-      const data: Job = await r.json()
-      setJob(data)
-      if (data.status === 'done' || data.status === 'error') {
-        stopPolling()
+    try {
+      const res = await fetch('/api/scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ segmento, cidade, raio }),
+      })
+      if (!res.ok) {
         setLoading(false)
+        return
       }
-    }, 2000)
+      const { jobId } = await res.json()
+
+      pollRef.current = setInterval(async () => {
+        try {
+          const r = await fetch(`/api/scrape/${jobId}`)
+          if (!r.ok) return
+          const data: Job = await r.json()
+          setJob(data)
+          if (data.status === 'done' || data.status === 'error') {
+            stopPolling()
+            setLoading(false)
+          }
+        } catch {
+          // network error during poll — keep trying
+        }
+      }, 2000)
+    } catch {
+      setLoading(false)
+    }
   }
 
   function exportCSV() {
@@ -56,7 +73,7 @@ export default function AdminPage() {
     a.href = url
     a.download = `leads-${segmento}-${cidade}.csv`
     a.click()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 100)
   }
 
   return (
