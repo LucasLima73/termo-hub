@@ -1,7 +1,20 @@
 // lib/scraper.ts
-import chromium from '@sparticuz/chromium'
 import playwright from 'playwright-core'
 import { addResult, updateJob } from './jobs'
+
+async function getLaunchOptions() {
+  if (process.env.NODE_ENV === 'production') {
+    const chromium = (await import('@sparticuz/chromium')).default
+    return {
+      args: chromium.args,
+      executablePath: await chromium.executablePath(),
+      headless: true as const,
+    }
+  }
+  return {
+    headless: true as const,
+  }
+}
 
 export async function runScraper(
   jobId: string,
@@ -13,11 +26,8 @@ export async function runScraper(
 
   let browser
   try {
-    browser = await playwright.chromium.launch({
-      args: chromium.args,
-      executablePath: await chromium.executablePath(),
-      headless: true,
-    })
+    const launchOptions = await getLaunchOptions()
+    browser = await playwright.chromium.launch(launchOptions)
 
     const page = await browser.newPage()
     const query = encodeURIComponent(`${segmento} em ${cidade}`)
