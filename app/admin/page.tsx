@@ -35,7 +35,7 @@ export default function AdminPage() {
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error ?? 'Erro desconhecido')
+        setError(data.error ?? `HTTP ${res.status}`)
       } else {
         setResults(data.results ?? [])
       }

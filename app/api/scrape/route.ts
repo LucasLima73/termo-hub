@@ -26,9 +26,8 @@ export async function POST(req: NextRequest) {
     const results = await scrapeLeads(segmento, cidade, filtroSite ?? 'sem_site')
     return NextResponse.json({ results })
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Erro desconhecido' },
-      { status: 500 }
-    )
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[scrape] error:', message)
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
