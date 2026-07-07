@@ -1,6 +1,6 @@
 import type { Lead } from './types'
 
-async function getText(page: import('playwright-core').Page, selector: string): Promise<string> {
+async function getText(page: import('puppeteer-core').Page, selector: string): Promise<string> {
   return page.$eval(selector, el => el.textContent?.trim() ?? '').catch(() => '')
 }
 
@@ -9,22 +9,28 @@ export async function scrapeLeads(
   cidade: string,
   filtroSite: 'sem_site' | 'com_site' | 'todos' = 'sem_site'
 ): Promise<Lead[]> {
-  const playwright = await import('playwright-core')
+  const puppeteer = await import('puppeteer-core')
 
-  let launchOptions: Parameters<typeof playwright.chromium.launch>[0]
+  let executablePath: string
+  let args: string[]
 
   if (process.env.NODE_ENV === 'production') {
     const chromium = (await import('@sparticuz/chromium')).default
-    launchOptions = {
-      args: chromium.args,
-      executablePath: await chromium.executablePath(),
-      headless: true,
-    }
+    executablePath = await chromium.executablePath()
+    args = chromium.args
   } else {
-    launchOptions = { headless: true }
+    // macOS local — usa Chrome instalado
+    executablePath =
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    args = ['--no-sandbox', '--disable-setuid-sandbox']
   }
 
-  const browser = await playwright.chromium.launch(launchOptions)
+  const browser = await puppeteer.launch({
+    executablePath,
+    args,
+    headless: true,
+  })
+
   const results: Lead[] = []
 
   try {
@@ -41,18 +47,19 @@ export async function scrapeLeads(
     await page.waitForSelector('[role="feed"] a[href*="/maps/place/"]', { timeout: 15000 })
 
     // Scroll para carregar mais resultados
-    const feed = await page.$('[role="feed"]')
-    if (feed) {
-      for (let s = 0; s < 5; s++) {
-        await feed.evaluate(el => el.scrollBy(0, 600))
-        await page.waitForTimeout(600)
+    await page.evaluate(async () => {
+      const feed = document.querySelector('[role="feed"]')
+      if (!feed) return
+      for (let i = 0; i < 5; i++) {
+        feed.scrollBy(0, 600)
+        await new Promise(r => setTimeout(r, 600))
       }
-    }
+    })
 
     const hrefs: string[] = await page.$$eval(
       '[role="feed"] a[href*="/maps/place/"]',
       els => [...new Set(
-        els.map(el => (el as HTMLAnchorElement).href).filter(h => h.includes('/maps/place/'))
+        (els as HTMLAnchorElement[]).map(el => el.href).filter(h => h.includes('/maps/place/'))
       )]
     )
 
@@ -63,7 +70,7 @@ export async function scrapeLeads(
         await page.goto(hrefs[i], { waitUntil: 'domcontentloaded', timeout: 20000 })
         await page.waitForSelector('h1', { timeout: 10000 })
 
-        const hasWebsite = await page.$('a[data-item-id="authority"]') !== null
+        const hasWebsite = (await page.$('a[data-item-id="authority"]')) !== null
         if (filtroSite === 'sem_site' && hasWebsite) continue
         if (filtroSite === 'com_site' && !hasWebsite) continue
 
