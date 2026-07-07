@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import type { Job, Lead } from '@/lib/types'
+import { useState } from 'react'
+import type { Lead } from '@/lib/types'
 
 const RAIOS = [5, 10, 20, 50]
 
@@ -17,26 +17,15 @@ export default function AdminPage() {
   const [cidade, setCidade] = useState('')
   const [raio, setRaio] = useState(10)
   const [filtroSite, setFiltroSite] = useState<'sem_site' | 'com_site' | 'todos'>('sem_site')
-  const [job, setJob] = useState<Job | null>(null)
+  const [results, setResults] = useState<Lead[]>([])
   const [loading, setLoading] = useState(false)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  function stopPolling() {
-    if (pollRef.current) {
-      clearInterval(pollRef.current)
-      pollRef.current = null
-    }
-  }
-
-  useEffect(() => {
-    return () => stopPolling()
-  }, [])
+  const [error, setError] = useState('')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    stopPolling()
     setLoading(true)
-    setJob(null)
+    setResults([])
+    setError('')
 
     try {
       const res = await fetch('/api/scrape', {
@@ -44,35 +33,23 @@ export default function AdminPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ segmento, cidade, raio, filtroSite }),
       })
+      const data = await res.json()
       if (!res.ok) {
-        setLoading(false)
-        return
+        setError(data.error ?? 'Erro desconhecido')
+      } else {
+        setResults(data.results ?? [])
       }
-      const { jobId } = await res.json()
-
-      pollRef.current = setInterval(async () => {
-        try {
-          const r = await fetch(`/api/scrape/${jobId}`)
-          if (!r.ok) return
-          const data: Job = await r.json()
-          setJob(data)
-          if (data.status === 'done' || data.status === 'error') {
-            stopPolling()
-            setLoading(false)
-          }
-        } catch {
-          // network error during poll — keep trying
-        }
-      }, 2000)
     } catch {
+      setError('Erro de conexão')
+    } finally {
       setLoading(false)
     }
   }
 
   function exportCSV() {
-    if (!job?.results.length) return
+    if (!results.length) return
     const header = 'Nome,Telefone,Endereço,Google Maps\n'
-    const rows = job.results
+    const rows = results
       .map(l => `"${l.name}","${l.phone}","${l.address}","${l.mapsUrl}"`)
       .join('\n')
     const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' })
@@ -177,69 +154,57 @@ export default function AdminPage() {
           </button>
         </form>
 
-        {job && (
+        {error && (
+          <p className="text-red-400 text-sm">{error}</p>
+        )}
+
+        {!loading && results.length > 0 && (
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-gray-400 text-sm">
-                  {job.status === 'running' && `Progresso: ${job.progress}%`}
-                  {job.status === 'done' && `${job.results.length} leads encontrados`}
-                  {job.status === 'error' && `Erro: ${job.error}`}
-                </span>
-              </div>
-              {job.status === 'done' && job.results.length > 0 && (
-                <button
-                  onClick={exportCSV}
-                  className="bg-gray-800 hover:bg-gray-700 text-green-400 border border-green-800 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                >
-                  Exportar CSV
-                </button>
-              )}
+              <span className="text-gray-400 text-sm">{results.length} leads encontrados</span>
+              <button
+                onClick={exportCSV}
+                className="bg-gray-800 hover:bg-gray-700 text-green-400 border border-green-800 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              >
+                Exportar CSV
+              </button>
             </div>
-
-            {job.status === 'running' && (
-              <div className="w-full bg-gray-800 rounded-full h-1.5">
-                <div
-                  className="bg-green-500 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${job.progress}%` }}
-                />
-              </div>
-            )}
-
-            {job.results.length > 0 && (
-              <div className="overflow-x-auto rounded-xl border border-gray-800">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-800 bg-gray-900">
-                      <th className="text-left px-4 py-3 text-gray-400 font-medium">Nome</th>
-                      <th className="text-left px-4 py-3 text-gray-400 font-medium">Telefone</th>
-                      <th className="text-left px-4 py-3 text-gray-400 font-medium">Endereço</th>
-                      <th className="text-left px-4 py-3 text-gray-400 font-medium">Maps</th>
+            <div className="overflow-x-auto rounded-xl border border-gray-800">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-800 bg-gray-900">
+                    <th className="text-left px-4 py-3 text-gray-400 font-medium">Nome</th>
+                    <th className="text-left px-4 py-3 text-gray-400 font-medium">Telefone</th>
+                    <th className="text-left px-4 py-3 text-gray-400 font-medium">Endereço</th>
+                    <th className="text-left px-4 py-3 text-gray-400 font-medium">Maps</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((lead: Lead, i: number) => (
+                    <tr key={i} className="border-b border-gray-800/50 hover:bg-gray-900/50">
+                      <td className="px-4 py-3 text-white font-medium">{lead.name}</td>
+                      <td className="px-4 py-3 text-gray-300">{lead.phone || '—'}</td>
+                      <td className="px-4 py-3 text-gray-300">{lead.address || '—'}</td>
+                      <td className="px-4 py-3">
+                        <a
+                          href={lead.mapsUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-green-400 hover:text-green-300 underline"
+                        >
+                          Ver
+                        </a>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {job.results.map((lead: Lead, i: number) => (
-                      <tr key={i} className="border-b border-gray-800/50 hover:bg-gray-900/50">
-                        <td className="px-4 py-3 text-white font-medium">{lead.name}</td>
-                        <td className="px-4 py-3 text-gray-300">{lead.phone || '—'}</td>
-                        <td className="px-4 py-3 text-gray-300">{lead.address || '—'}</td>
-                        <td className="px-4 py-3">
-                          <a
-                            href={lead.mapsUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-green-400 hover:text-green-300 underline"
-                          >
-                            Ver
-                          </a>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
+        )}
+
+        {!loading && !error && results.length === 0 && (
+          <p className="text-gray-600 text-sm text-center">Nenhum resultado ainda.</p>
         )}
       </div>
     </div>

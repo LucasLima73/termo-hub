@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { v4 as uuidv4 } from 'uuid'
-import { createJob } from '@/lib/jobs'
-import { runScraper } from '@/lib/scraper'
+import { scrapeLeads } from '@/lib/scraper'
 
 export const maxDuration = 60
 export const runtime = 'nodejs'
@@ -24,11 +22,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'segmento, cidade e raio são obrigatórios' }, { status: 400 })
   }
 
-  const jobId = uuidv4()
-  createJob(jobId)
-
-  // Dispara em background — não aguarda
-  runScraper(jobId, segmento, cidade, raio, filtroSite ?? 'sem_site').catch(() => {})
-
-  return NextResponse.json({ jobId })
+  try {
+    const results = await scrapeLeads(segmento, cidade, filtroSite ?? 'sem_site')
+    return NextResponse.json({ results })
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Erro desconhecido' },
+      { status: 500 }
+    )
+  }
 }

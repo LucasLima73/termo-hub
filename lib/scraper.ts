@@ -1,44 +1,35 @@
-// lib/scraper.ts
-import { addResult, updateJob } from './jobs'
+import type { Lead } from './types'
 
 async function getText(page: import('playwright-core').Page, selector: string): Promise<string> {
   return page.$eval(selector, el => el.textContent?.trim() ?? '').catch(() => '')
 }
 
-export async function runScraper(
-  jobId: string,
+export async function scrapeLeads(
   segmento: string,
   cidade: string,
-  raioKm: number,
   filtroSite: 'sem_site' | 'com_site' | 'todos' = 'sem_site'
-): Promise<void> {
-  updateJob(jobId, { status: 'running', progress: 5 })
+): Promise<Lead[]> {
+  const playwright = await import('playwright-core')
 
-  let browser: import('playwright-core').Browser | undefined
-  try {
-    // Import dinâmico para evitar execução do coreBundle no momento do bundle
-    const playwright = await import('playwright-core')
+  let launchOptions: Parameters<typeof playwright.chromium.launch>[0]
 
-    let launchOptions: Parameters<typeof playwright.chromium.launch>[0]
-
-    if (process.env.NODE_ENV === 'production') {
-      const chromium = (await import('@sparticuz/chromium')).default
-      launchOptions = {
-        args: chromium.args,
-        executablePath: await chromium.executablePath(),
-        headless: true,
-      }
-    } else {
-      launchOptions = { headless: true }
+  if (process.env.NODE_ENV === 'production') {
+    const chromium = (await import('@sparticuz/chromium')).default
+    launchOptions = {
+      args: chromium.args,
+      executablePath: await chromium.executablePath(),
+      headless: true,
     }
+  } else {
+    launchOptions = { headless: true }
+  }
 
-    browser = await playwright.chromium.launch(launchOptions)
+  const browser = await playwright.chromium.launch(launchOptions)
+  const results: Lead[] = []
 
+  try {
     const page = await browser.newPage()
-
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': 'pt-BR,pt;q=0.9',
-    })
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'pt-BR,pt;q=0.9' })
 
     const query = encodeURIComponent(`${segmento} em ${cidade}`)
     await page.goto(`https://www.google.com/maps/search/${query}`, {
@@ -52,19 +43,20 @@ export async function runScraper(
     // Scroll para carregar mais resultados
     const feed = await page.$('[role="feed"]')
     if (feed) {
-      for (let s = 0; s < 8; s++) {
+      for (let s = 0; s < 5; s++) {
         await feed.evaluate(el => el.scrollBy(0, 600))
-        await page.waitForTimeout(800)
+        await page.waitForTimeout(600)
       }
     }
 
     const hrefs: string[] = await page.$$eval(
       '[role="feed"] a[href*="/maps/place/"]',
-      els => [...new Set(els.map(el => (el as HTMLAnchorElement).href).filter(h => h.includes('/maps/place/')))]
+      els => [...new Set(
+        els.map(el => (el as HTMLAnchorElement).href).filter(h => h.includes('/maps/place/'))
+      )]
     )
 
-    const total = Math.min(hrefs.length, 40)
-    updateJob(jobId, { progress: 10 })
+    const total = Math.min(hrefs.length, 15)
 
     for (let i = 0; i < total; i++) {
       try {
@@ -72,16 +64,11 @@ export async function runScraper(
         await page.waitForSelector('h1', { timeout: 10000 })
 
         const hasWebsite = await page.$('a[data-item-id="authority"]') !== null
-        if (filtroSite === 'sem_site' && hasWebsite) {
-          updateJob(jobId, { progress: 10 + Math.floor(((i + 1) / total) * 85) })
-          continue
-        }
-        if (filtroSite === 'com_site' && !hasWebsite) {
-          updateJob(jobId, { progress: 10 + Math.floor(((i + 1) / total) * 85) })
-          continue
-        }
+        if (filtroSite === 'sem_site' && hasWebsite) continue
+        if (filtroSite === 'com_site' && !hasWebsite) continue
 
         const name = await getText(page, 'h1')
+        if (!name || name === 'Resultados') continue
 
         const phone =
           (await getText(page, '[data-item-id^="phone"]')) ||
@@ -98,26 +85,14 @@ export async function runScraper(
             el => el.getAttribute('aria-label')?.replace('Endereço: ', '') ?? ''
           ).catch(() => ''))
 
-        const mapsUrl = page.url()
-
-        if (name && name !== 'Resultados') {
-          addResult(jobId, { name, phone, address, mapsUrl })
-        }
-
-        updateJob(jobId, { progress: 10 + Math.floor(((i + 1) / total) * 85) })
+        results.push({ name, phone, address, mapsUrl: page.url() })
       } catch {
-        // Continua para próximo
+        // pula resultado com erro
       }
     }
-
-    updateJob(jobId, { status: 'done', progress: 100 })
-  } catch (err) {
-    updateJob(jobId, {
-      status: 'error',
-      progress: 0,
-      error: err instanceof Error ? err.message : 'Erro desconhecido',
-    })
   } finally {
-    await browser?.close()
+    await browser.close()
   }
+
+  return results
 }
